@@ -1,0 +1,10 @@
+{
+    "Domain": "Infrastructure",
+    "System": "Backstage",
+    "Component": $env.GITHUB_REPOSITORY_NAME_PART_SLUG_CS,
+    "CodeBranch": $env.GITHUB_REF_SLUG_CS,
+    "VpcId": "/org/networking/VpcId",
+    "VpcSubnets": "/org/networking/VpcPublicSubnets",
+    "Hostname": "backstage.serverlessops.io",
+    "DnsZoneId": "/org/dns/ZoneId"
+}

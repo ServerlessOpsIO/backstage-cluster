@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Backstage Cluster
+
+  Backstage ECS cluster for running the Backstage application
+
+Parameters:
+  Domain:
+    Type: String
+    Description: 'Application Platform'
+
+  System:
+    Type: String
+    Description: 'Application System'
+
+  Component:
+    Type: String
+    Description: 'Application Component'
+
+  CodeBranch:
+    Type: String
+    Description: "Name of deployment branch"
+
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: Account VPC ID
+
+  VpcSubnets:
+    Type: AWS::SSM::Parameter::Value<CommaDelimitedList>
+    Description: Account subnets
+
+  Hostname:
+    Type: String
+    Description: Site FQDN
+
+  DnsZoneId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: Route53 Hosted Zone ID
+
+
+
+Resources:
+  # ALB Resources
+  ## ALB networking
+  EcsAlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to ALB for Fargate
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 443
+          ToPort: 443
+
+  SiteDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref DnsZoneId
+      Name: !Ref Hostname
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt EcsAlb.DNSName
+        HostedZoneId: !GetAtt EcsAlb.CanonicalHostedZoneID
+
+  SiteCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref Hostname
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref Hostname
+          HostedZoneId: !Ref DnsZoneId
+
+  ## ALB setup
+  EcsAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref VpcSubnets
+      SecurityGroups:
+        - !Ref EcsAlbSecurityGroup
+
+  EcsAlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: fixed-response
+          Order: 50000
+          FixedResponseConfig:
+            ContentType: application/json
+            StatusCode: 200
+            MessageBody: '{ "healthy": true }'
+      LoadBalancerArn: !Ref 'EcsAlb'
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref SiteCertificate
+
+  # ECS Resources
+  ## Cluster
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+
+  EcsTaskExecutionIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  # Allow the ECS Tasks to download images from ECR
+                  - 'ecr:GetAuthorizationToken'
+                  - 'ecr:BatchCheckLayerAvailability'
+                  - 'ecr:GetDownloadUrlForLayer'
+                  - 'ecr:BatchGetImage'
+
+                  # Allow the ECS tasks to upload logs to CloudWatch
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+
+  ## ECS Network Access
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Fargate container access
+      VpcId: !Ref 'VpcId'
+
+  ContainerAlbSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Ingress from ALBs
+      GroupId: !Ref ContainerSecurityGroup
+      # All TCP ports
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref EcsAlbSecurityGroup
+
+  # SSM Values
+  EcsClusterNameSsmParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: Name of ECS Cluster
+      Name: !Sub /${Domain}/${System}/${Component}/${CodeBranch}/EcsClusterName
+      Value: !Ref EcsCluster
+
+  EcsTaskExecutionIamRoleArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: ARN of IAM role for performing ECS related operations by tasks
+      Name: !Sub /${Domain}/${System}/${Component}/${CodeBranch}/EcsTaskExecutionIamRoleArn
+      Value: !Ref EcsTaskExecutionIamRole
+
+  ContainerSecurityGroupIdSsmParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: Name of ECS Cluster
+      Name: !Sub /${Domain}/${System}/${Component}/${CodeBranch}/ContainerSecurityGroupId
+      Value: !Ref ContainerSecurityGroup
+
+  EcsAlbListenerArnSsmParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: ARN of cluster ALB
+      Name: !Sub /${Domain}/${System}/${Component}/${CodeBranch}/EcsAlbListenerArn
+      Value: !Ref EcsAlbListener

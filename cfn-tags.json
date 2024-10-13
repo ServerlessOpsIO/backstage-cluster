@@ -1,5 +1,5 @@
 {
-    "org:domain": "Infrastructure",
-    "org:system": "Backstage",
+    "org:domain": "infra",
+    "org:system": "backstage",
     "org:component": $env.GITHUB_REPOSITORY_NAME_PART_SLUG_CS
 }

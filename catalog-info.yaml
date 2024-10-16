@@ -1,0 +1,15 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: backstage-cluster
+  description: Backstage ECS Cluster
+  annotations:
+    github.com/project-slug: ServerlessOpsIO/backstage-cluster
+    io.serverlessops/cluster-type: ecs
+spec:
+  type: container-cluster
+  lifecycle: production
+  owner: group:admins
+  system: backstage
+  domain: infrastructure

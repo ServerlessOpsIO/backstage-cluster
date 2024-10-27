@@ -54,15 +54,15 @@ Resources:
           FromPort: 443
           ToPort: 443
 
-  #SiteDnsRecord:
-  #  Type: AWS::Route53::RecordSet
-  #  Properties:
-  #    HostedZoneId: !Ref DnsZoneId
-  #    Name: !Ref Hostname
-  #    Type: A
-  #    AliasTarget:
-  #      DNSName: !GetAtt EcsAlb.DNSName
-  #      HostedZoneId: !GetAtt EcsAlb.CanonicalHostedZoneID
+  SiteDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref DnsZoneId
+      Name: !Ref Hostname
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt EcsAlb.DNSName
+        HostedZoneId: !GetAtt EcsAlb.CanonicalHostedZoneID
 
   SiteCertificate:
     Type: AWS::CertificateManager::Certificate

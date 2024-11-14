@@ -10,6 +10,6 @@ metadata:
 spec:
   type: container-cluster
   lifecycle: production
-  owner: group:admins
+  owner: group:developers
   system: backstage
   domain: infrastructure

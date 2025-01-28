@@ -103,6 +103,9 @@ Resources:
   ## Cluster
   EcsCluster:
     Type: AWS::ECS::Cluster
+    Properties:
+      CapacityProviders:
+        - FARGATE_SPOT
 
   EcsTaskExecutionIamRole:
     Type: AWS::IAM::Role

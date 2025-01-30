@@ -106,6 +106,7 @@ Resources:
     Properties:
       CapacityProviders:
         - FARGATE_SPOT
+        - FARGATE
 
   EcsTaskExecutionIamRole:
     Type: AWS::IAM::Role

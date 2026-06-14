@@ -5,6 +5,6 @@
 	"CodeBranch": $env.GITHUB_REF_SLUG_CS,
 	"VpcId": "/org/networking/VpcId",
 	"VpcSubnets": "/org/networking/VpcPublicSubnets",
-	"Hostname": "backstage.serverlessops.io",
-	"DnsZoneId": "/org/dns/ZoneId"
+	"Hostname": "platform.serverlessops.io",
+	"DnsZoneId": $secrets.ROUTE53_ZONE_ID
 }

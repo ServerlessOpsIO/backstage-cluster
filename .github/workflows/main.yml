@@ -64,4 +64,5 @@ jobs:
         with:
           aws_account_id: ${{ secrets.DEPLOYMENT_ACCOUNT_ID }}
           env_json: ${{ toJson(env) }}
+          vars_json: ${{ toJson(vars) }}
           secrets_json: ${{ toJson(secrets) }}

@@ -187,3 +187,19 @@ Resources:
       Description: ARN of cluster ALB
       Name: !Sub /${Domain}/${System}/${Component}/${CodeBranch}/EcsAlbListenerArn
       Value: !Ref EcsAlbListener
+
+  EcsAlbNameSsmParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: Full name of cluster ALB
+      Name: !Sub /${Domain}/${System}/${Component}/${CodeBranch}/EcsAlbName
+      Value: !GetAtt EcsAlb.LoadBalancerName
+
+  EcsAlbFullNameSsmParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: Full name of cluster ALB
+      Name: !Sub /${Domain}/${System}/${Component}/${CodeBranch}/EcsAlbFullName
+      Value: !GetAtt EcsAlb.LoadBalancerFullName

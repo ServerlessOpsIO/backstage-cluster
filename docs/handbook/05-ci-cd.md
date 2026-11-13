@@ -98,8 +98,9 @@ not deploy infrastructure.
 1. `check` looks for Markdown under `docs/` and stops the run when there is
    none.
 2. `build` copies `docs/` into a temporary MkDocs project. Because the
-   repository has no `mkdocs.yml` or `docs/index.md`, it generates both from
-   the name and description in `catalog-info.yaml`. It then builds the site
+   repository has no `mkdocs.yml`, it generates one from the name and
+   description in `catalog-info.yaml`. `docs/index.md` is the site's landing
+   page. It then builds the site
    with `@techdocs/cli generate --no-docker` and `mkdocs-techdocs-core`.
 3. `deploy` assumes AWS credentials and runs `@techdocs/cli publish` to the S3
    bucket named by the `TECHDOCS_BUCKET` variable, under the entity path

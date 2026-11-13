@@ -21,9 +21,9 @@ builds the `docs/` directory and publishes it to the TechDocs S3 bucket. See
 [CI/CD pipeline](05-ci-cd.md#documentation-publishing).
 
 The repository has no `mkdocs.yml`. The workflow generates one, so the site
-navigation follows the file names in `docs/handbook/` and the landing page is a
-generated title page. Add a repository-root `mkdocs.yml` to control the
-navigation; the workflow uses it when present.
+navigation follows the file names under `docs/`, with `docs/index.md` as the
+landing page. Add a repository-root `mkdocs.yml` to control the navigation; the
+workflow uses it when present.
 
 The pages can also be read directly in GitHub. Paths shown in backticks are
 relative to the repository root.

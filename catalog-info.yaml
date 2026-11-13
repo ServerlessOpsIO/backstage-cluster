@@ -7,6 +7,7 @@ metadata:
   annotations:
     github.com/project-slug: ServerlessOpsIO/backstage-cluster
     io.serverlessops/cluster-type: ecs
+    backstage.io/techdocs-ref: .
 spec:
   type: container-cluster
   lifecycle: production

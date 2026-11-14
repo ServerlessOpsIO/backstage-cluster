@@ -1,0 +1,275 @@
+name: Techdocs - Specs
+
+# Builds each directory under specs/ that has a spec.md, and publishes it as
+# the TechDocs of the entity in that directory's catalog-info.yaml.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'specs/**'
+      - '.github/workflows/techdocs-specs.yml'
+
+concurrency:
+  group: techdocs-specs-${{ github.ref }}
+  # Runs only build what their own push changed, so a newer run must not
+  # cancel an older one.
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Discover specs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      specs: ${{ steps.specs.outputs.specs }}
+
+    steps:
+      - name: Setup job workspace
+        uses: ServerlessOpsIO/gha-setup-workspace@v2
+
+      # A push only builds the specs it changed. Every spec is built on a
+      # manual run, on the first push of a branch, when this workflow changes,
+      # or when the changed files cannot be determined.
+      - name: List specs
+        id: specs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          all_specs=$(
+            find specs -mindepth 2 -maxdepth 2 -name spec.md -print 2>/dev/null \
+              | xargs -r -n1 dirname \
+              | xargs -r -n1 basename \
+              | sort
+          )
+
+          build_all=''
+          changed=''
+          if [ "${EVENT_NAME}" != 'push' ]; then
+            build_all='not a push'
+          elif [ -z "${BEFORE}" ] || [ "${BEFORE}" = '0000000000000000000000000000000000000000' ]; then
+            build_all='first push of this branch'
+          elif ! changed=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${BEFORE}...${GITHUB_SHA}" --jq '.files[].filename'); then
+            build_all='could not compare commits'
+          elif [ "$(printf '%s\n' "${changed}" | wc -l)" -ge 300 ]; then
+            # The compare API lists at most 300 files.
+            build_all='too many changed files to list'
+          elif printf '%s\n' "${changed}" | grep -qx '.github/workflows/techdocs-specs.yml'; then
+            build_all='workflow changed'
+          fi
+
+          if [ -n "${build_all}" ]; then
+            echo "Building every spec: ${build_all}"
+            specs="${all_specs}"
+          else
+            changed_specs=$(printf '%s\n' "${changed}" | sed -n 's|^specs/\([^/]*\)/.*|\1|p' | sort -u)
+            specs=$(printf '%s\n' "${all_specs}" | grep -Fx -f <(printf '%s\n' "${changed_specs}") || true)
+          fi
+
+          specs_json=$(printf '%s\n' "${specs}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "specs=${specs_json}" >> "$GITHUB_OUTPUT"
+          echo "Specs to build: ${specs_json}"
+
+  build:
+    name: Build ${{ matrix.spec }}
+    needs:
+      - discover
+    if: needs.discover.outputs.specs != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        spec: ${{ fromJson(needs.discover.outputs.specs) }}
+    env:
+      SPEC_NAME: ${{ matrix.spec }}
+      SPEC_DIR: specs/${{ matrix.spec }}
+      CATALOG_FILE: specs/${{ matrix.spec }}/catalog-info.yaml
+
+    steps:
+      - name: Setup job workspace
+        uses: ServerlessOpsIO/gha-setup-workspace@v2
+
+      - name: Setup NodeJS
+        id: install-node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Setup Python
+        id: install-python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Install MkDocs
+        run: pip install 'mkdocs-techdocs-core==1.*' 'markdown-inline-mermaid==1.*'
+
+      # Mermaid diagrams are rendered to inline SVG at build time by
+      # markdown-inline-mermaid, which runs the Mermaid CLI (mmdc) for each
+      # diagram. The CLI drives a headless browser, which is installed
+      # explicitly because npm may not run the install script that fetches it.
+      - name: Install Mermaid CLI
+        env:
+          MERMAID_DIR: ${{ runner.temp }}/mermaid
+        run: |
+          npm install --prefix "${MERMAID_DIR}" '@mermaid-js/mermaid-cli@12'
+          "${MERMAID_DIR}/node_modules/.bin/puppeteer" browsers install chrome-headless-shell
+          echo "${MERMAID_DIR}/node_modules/.bin" >> "$GITHUB_PATH"
+
+      # Lay the spec out as a MkDocs project in $RUNNER_TEMP/build, outside the
+      # git checkout. Spec directories have no mkdocs.yml, so one is generated.
+      - name: Stage MkDocs project
+        env:
+          WORK_DIR: ${{ runner.temp }}/build/source
+        run: |
+          content="${WORK_DIR}/spec"
+          mkdir -p "${content}"
+          cp -R "${SPEC_DIR}/." "${content}/"
+          rm -f "${content}/catalog-info.yaml"
+
+          title=''
+          description=''
+          if [ -f "${CATALOG_FILE}" ]; then
+            title=$(yq 'select(document_index == 0) | .metadata.title // .metadata.name // ""' "${CATALOG_FILE}")
+            description=$(yq 'select(document_index == 0) | .metadata.description // ""' "${CATALOG_FILE}")
+          fi
+          export TITLE="${title:-$SPEC_NAME}"
+          export DESCRIPTION="${description}"
+
+          yq -n '
+            .site_name = strenv(TITLE) |
+            .site_description = strenv(DESCRIPTION) |
+            .docs_dir = "spec" |
+            .plugins = ["techdocs-core"] |
+            .markdown_extensions = ["markdown_inline_mermaid"]
+          ' > "${WORK_DIR}/mkdocs.yml"
+
+          # TechDocs needs a landing page at the site root.
+          if [ ! -f "${content}/index.md" ]; then
+            {
+              printf '# %s\n\n' "${TITLE}"
+              if [ -n "${DESCRIPTION}" ]; then
+                printf '%s\n\n' "${DESCRIPTION}"
+              fi
+              for doc in spec plan research data-model quickstart tasks; do
+                if [ -f "${content}/${doc}.md" ]; then
+                  printf -- '- [%s](%s.md)\n' "${doc}" "${doc}"
+                fi
+              done
+            } > "${content}/index.md"
+          fi
+
+          cat "${WORK_DIR}/mkdocs.yml"
+
+      - name: Build TechDocs
+        env:
+          WORK_DIR: ${{ runner.temp }}/build/source
+          SITE_DIR: ${{ runner.temp }}/build/artifact/site
+        run: |
+          npx --yes @techdocs/cli generate \
+            --no-docker \
+            --verbose \
+            --source-dir "${WORK_DIR}" \
+            --output-dir "${SITE_DIR}" \
+            --dangerouslyAllowAdditionalExtensions markdown_inline_mermaid
+
+          # A diagram that fails to render is written into the page as an error
+          # instead of failing the build, so look for it.
+          if grep -rl --include='*.html' '<pre>Error : ' "${SITE_DIR}"; then
+            echo "::error::A Mermaid diagram failed to render in the pages listed above"
+            exit 1
+          fi
+
+      # The deploy job has no checkout, so the catalog-info.yaml that names the
+      # entity to publish to travels with the site. It sits beside site/, not
+      # in it, so it is not published.
+      - name: Bundle catalog-info.yaml
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/build/artifact
+        run: |
+          if [ ! -f "${CATALOG_FILE}" ]; then
+            echo "::error::${CATALOG_FILE} is required to publish TechDocs"
+            exit 1
+          fi
+          cp "${CATALOG_FILE}" "${ARTIFACT_DIR}/catalog-info.yaml"
+
+      - name: Upload TechDocs site
+        uses: actions/upload-artifact@v7
+        with:
+          name: techdocs-${{ matrix.spec }}
+          path: ${{ runner.temp }}/build/artifact
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy ${{ matrix.spec }}
+    needs:
+      - discover
+      - build
+    # Runs even when some specs failed to build, so the ones that did build
+    # are still published. A spec that failed has no site to download and its
+    # deploy fails too.
+    if: ${{ !cancelled() && needs.discover.result == 'success' && needs.discover.outputs.specs != '[]' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        spec: ${{ fromJson(needs.discover.outputs.specs) }}
+
+    steps:
+      - name: Setup job workspace
+        uses: ServerlessOpsIO/gha-setup-workspace@v2
+        with:
+          checkout_artifact: true
+
+      - name: Setup NodeJS
+        id: install-node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      # The artifact holds the site in site/ and, beside it, the
+      # catalog-info.yaml that names the entity to publish to.
+      - name: Download TechDocs site
+        uses: actions/download-artifact@v8
+        with:
+          name: techdocs-${{ matrix.spec }}
+          path: ${{ runner.temp }}/techdocs
+
+      - name: Assume AWS Credentials
+        uses: ServerlessOpsIO/gha-assume-aws-credentials@v1
+        with:
+          build_aws_account_id: ${{ secrets.AWS_CICD_ACCOUNT_ID }}
+          deploy_aws_account_id: ${{ secrets.DEPLOYMENT_ACCOUNT_ID }}
+
+      # TechDocs are stored under the entity's namespace/kind/name, which comes
+      # from the spec's catalog-info.yaml.
+      - name: Publish TechDocs
+        env:
+          SITE_DIR: ${{ runner.temp }}/techdocs/site
+          CATALOG_FILE: ${{ runner.temp }}/techdocs/catalog-info.yaml
+          TECHDOCS_BUCKET: ${{ vars.TECHDOCS_BUCKET }}
+        run: |
+          if [ -z "${TECHDOCS_BUCKET}" ]; then
+            echo "::error::The TECHDOCS_BUCKET variable is not set"
+            exit 1
+          fi
+          if [ ! -f "${CATALOG_FILE}" ]; then
+            echo "::error::${CATALOG_FILE} is required to publish TechDocs"
+            exit 1
+          fi
+          entity=$(yq 'select(document_index == 0) | (.metadata.namespace // "default") + "/" + .kind + "/" + .metadata.name' "${CATALOG_FILE}")
+          echo "Publishing ${entity} to ${TECHDOCS_BUCKET}"
+
+          npx --yes @techdocs/cli publish \
+            --publisher-type awsS3 \
+            --storage-name "${TECHDOCS_BUCKET}" \
+            --entity "${entity}" \
+            --directory "${SITE_DIR}"

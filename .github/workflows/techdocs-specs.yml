@@ -141,12 +141,39 @@ jobs:
           export TITLE="${title:-$SPEC_NAME}"
           export DESCRIPTION="${description}"
 
+          # The sidebar lists the standard spec documents first, in this order
+          # and under these names instead of each page's top-level heading. Any
+          # other pages follow, grouped by directory.
+          standard='spec plan research data-model quickstart tasks'
+          nav=$(
+            cd "${content}"
+            {
+              for doc in ${standard}; do
+                if [ -f "${doc}.md" ]; then
+                  jq -n -c --arg doc "${doc}" '{($doc): ($doc + ".md")}'
+                fi
+              done
+              find . -mindepth 1 -maxdepth 1 -name '*.md' | sed 's|^\./||' | sort \
+                | jq -R -c --arg standard "${standard}" '
+                    select(. as $file | ["index"] + ($standard | split(" ")) | map(. + ".md") | index($file) | not)
+                  '
+              find . -mindepth 2 -name '*.md' | sed 's|^\./||' | sort \
+                | jq -R -s -c '
+                    split("\n") | map(select(length > 0))
+                    | group_by(split("/")[0]) | .[]
+                    | {(.[0] | split("/")[0]): .}
+                  '
+            } | jq -s -c '.'
+          )
+          export NAV="${nav}"
+
           yq -n '
             .site_name = strenv(TITLE) |
             .site_description = strenv(DESCRIPTION) |
             .docs_dir = "spec" |
             .plugins = ["techdocs-core"] |
-            .markdown_extensions = ["markdown_inline_mermaid"]
+            .markdown_extensions = ["markdown_inline_mermaid"] |
+            .nav = (strenv(NAV) | from_json)
           ' > "${WORK_DIR}/mkdocs.yml"
 
           # TechDocs needs a landing page at the site root.
